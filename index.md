@@ -1,8 +1,6 @@
 ---
 ---
 
-# R3CAP: Real-Time 3D Reconstruction & Collaborative Authoring Platform
-
 ## Introduction
 
 Previously known as demoConstruct, R3CAP is an open-source platform that enables accessible and collaborative scene authoring, powered by progressive 3D reconstruction. The project aims to democratize the construction of digital twin environments by providing an accessible platform that allows different users to populate, edit and interact with shared 3D digital replicas, all at the same time.
