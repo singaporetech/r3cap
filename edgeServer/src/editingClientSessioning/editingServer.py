@@ -326,6 +326,46 @@ class EditingServer:
         result["success"] = "true"
         return result
 
+    def update_measurement_object(self, websocket, jsonData: dict[str, any]):
+        """
+        Updates an existing measurement object for the `RoomInstance`,
+        and adds it as an action to the list of `room.add_pending_action` to be performed in `roomInstance.process_pending_actions`.
+        """
+        result = {}
+
+        room_id = self.get_connected_room_id(websocket)
+        room: RoomInstance = self.room_instances.get(room_id)
+        if room == None:
+            result["success"] = "false"
+            return result
+
+        # Create action and add to pending room.
+        action = roomMeasurementActions.UpdateMeasurementInstance(jsonData)
+        room.add_pending_action(action)
+
+        result["success"] = "true"
+        return result
+
+    def delete_measurement_object(self, websocket, jsonData: dict[str, any]):
+        """
+        Deletes a measurement object from the `RoomInstance`,
+        and adds it as an action to the list of `room.add_pending_action` to be performed in `roomInstance.process_pending_actions`.
+        """
+        result = {}
+
+        room_id = self.get_connected_room_id(websocket)
+        room: RoomInstance = self.room_instances.get(room_id)
+        if room == None:
+            result["success"] = "false"
+            return result
+
+        # Create action and add to pending room.
+        action = roomMeasurementActions.DeleteMeasurementInstance(jsonData)
+        room.add_pending_action(action)
+
+        result["success"] = "true"
+        return result
+
 # ==================== Users response actions ====================
 
     def ws_start_room(self, jsonData: dict[str, any]):

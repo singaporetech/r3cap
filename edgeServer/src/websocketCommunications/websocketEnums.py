@@ -28,6 +28,8 @@ class CodeToServer(IntEnum):
     EditServer_ClientRequest_CreateNewMarkerObject = 110
     EditServer_ClientRequest_CreateNewAnnotationObject = 111
     EditServer_ClientRequest_CreateMeasurementObject = 112
+    EditServer_ClientRequest_UpdateMeasurementObject = 113
+    EditServer_ClientRequest_DeleteMeasurementObject = 114
 
     # Code for Collaborative Reconstruction Sessions for Editing and Capture Clients
     CaptureServer_StartSession = 201

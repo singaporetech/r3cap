@@ -112,8 +112,8 @@ export class VRMeasuringToolManager {
         }
         const position = rayHitInfo.pickedPoint;
         if (!MeasureMenuController.instance.startPoint) {
-            MeasureMenuController.instance.createAxisIndicator(position);
-            MeasureMenuController.instance.startNewMeasurement(position);
+            MeasureMenuController.instance.CreateAxisIndicator(position);
+            MeasureMenuController.instance.StartNewMeasurement(position);
             // this.startPoint = position.clone();
             // // console.log("Start point set at: " + this.startPoint);
             // this.createAxisIndicator(this.startPoint);
@@ -135,12 +135,12 @@ export class VRMeasuringToolManager {
                 {
                     point = ray.pickedPoint;
                 }
-                MeasureMenuController.instance.updateMeasuringDisplay(point);
+                MeasureMenuController.instance.UpdateMeasuringDisplay(point);
             }
         } 
         else 
         {
-            MeasureMenuController.instance.completeMeasurement(position);
+            MeasureMenuController.instance.CompleteMeasurement(position);
             // this.completeMeasurement(position);
             // // Remove the pointer move event and dispose of the dynamic text
             this.scene.onPointerMove = undefined;
@@ -183,7 +183,7 @@ export class VRMeasuringToolManager {
      * @returns A mesh representing the 3D text.
      */
     private createMeasurementText(text: string, position: Vector3) { //}: Mesh {
-        MeasureMenuController.instance.createMeasurementText(text, position);
+        MeasureMenuController.instance.CreateMeasurementText(text, position);
         // const plane = MeshBuilder.CreatePlane("textPlane", { width: 1, height: 0.5 }, this.scene);
         // plane.position = position.add(new Vector3(0, 0.1, -0.1));
         // plane.renderingGroupId = RenderConfig.gui

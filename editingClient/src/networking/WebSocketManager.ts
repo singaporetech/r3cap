@@ -59,7 +59,9 @@ export class SocketHandler {
     EditServer_ClientSend_BatchUpdate: 109,
     // EditServer_UpdateMarker: 110,
     EditServer_ClientRequest_CreateNewAnnotationObject: 111,
-    EditServer_ClientRequest_CreateMeasurementObject: 112,
+    EditServer_ClientRequest_CreateMeasurementObject: 112,  
+    EditServer_ClientRequest_UpdateMeasurementObject: 113,
+    EditServer_ClientRequest_DeleteMeasurementObject: 114,
 
     CaptureServer_StartSession: 201,
     CaptureServer_CloseSession: 202,

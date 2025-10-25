@@ -1,3 +1,14 @@
+"""
+@file roomMeasurementActions.py
+@description Defines action classes for managing measurement lifecycle on the server.
+Handles creation, updating, and deletion of measurements within a room instance.
+Each action class encapsulates the logic for a specific measurement operation and
+maintains consistency with the room's measurement state.
+
+@author nirmalsnair, leonfoo, wesleyqua
+@date 09/12/2024
+"""
+
 # from roomObjects.markerInstance import MarkerInstance
 # from roomObjects.meshInstance import MeshInstance
 from editingClientSessioning.roomObjects.MeasurementInstance import MeasurementInstance
@@ -28,8 +39,7 @@ class CreateMeasurementInstance:
         # Add measurement to room
         room_instance.measurement_instance_dict[self.measurement_instance.measurement_instance_id] = self.measurement_instance
 
-# Not implemented yet
-class UpdateMeasurement:
+class UpdateMeasurementInstance:
     def __init__(self, measurement_data: dict[str, any]):
         self.measurement_data = measurement_data
 
@@ -45,8 +55,7 @@ class UpdateMeasurement:
 
         room_instance.measurement_instance_dict[ref_measurements.measurement_instance_id] = ref_measurements
 
-# Not implemented yet
-class DeleteMeasurement:
+class DeleteMeasurementInstance:
     def __init__(self, measurement_data: dict[str, any]):
         self.measurement_data = measurement_data
 
@@ -57,11 +66,10 @@ class DeleteMeasurement:
             return
         
         ref_measure = room_instance.measurement_instance_dict[self.measurement_data["measurement_instance_id"]]
-        ref_measure.update_from_json(self.measurement_data)
         # set mark for deletion
         ref_measure.is_dirty = True
         ref_measure.mark_delete = True        
         room_instance.deleted_measurements.append(ref_measure.measurement_instance_id)
 
         # force update measurement
-        room_instance.measurement_instance_dict[ref_measure.measurement_instance_id] = ref_measure 
+        room_instance.measurement_instance_dict[ref_measure.measurement_instance_id] = ref_measure

@@ -65,6 +65,8 @@ async def ParseSocketData(socket : WebSocket, messageType : CodeToServer, jsonDa
         case CodeToServer.EditServer_ClientRequest_CreateNewAnnotationObject:   reply = ws_func.edit_server_create_new_annotation_object()
         # Uses this code to process the json data with the func on the right.
         case CodeToServer.EditServer_ClientRequest_CreateMeasurementObject:   reply = ws_func.edit_server_create_new_measurement_object()
+        case CodeToServer.EditServer_ClientRequest_UpdateMeasurementObject:   reply = ws_func.edit_server_update_measurement_object()
+        case CodeToServer.EditServer_ClientRequest_DeleteMeasurementObject:   reply = ws_func.edit_server_delete_measurement_object()
         
         # case CodeToServer.CaptureServer_StartSession:       reply = ws_func.capture_server_start_session()
         # case CodeToServer.CaptureServer_CloseSession:       reply = ws_func.capture_server_close_session()

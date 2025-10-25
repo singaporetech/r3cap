@@ -1,3 +1,14 @@
+"""
+@file MeasurementInstance.py
+@description Represents a measurement object on the server side.
+Stores measurement data (startPoint, endPoint, distance) and manages
+serialization/deserialization for client communication and persistence.
+Tracks state changes with is_dirty and mark_delete flags for synchronization.
+
+@author nirmalsnair, leonfoo, wesleyqua
+@date 09/12/2024
+"""
+
 INVALID_ID_NUM = -1
 
 # Represents a measure object IN THE SERVER.
@@ -36,6 +47,7 @@ class MeasurementInstance:
             "startPoint": self.startPoint,
             "endPoint": self.endPoint,
             "distanceMeasured": self.distanceMeasured,
+            "mark_delete": self.mark_delete,
         }
         return dict_
     
@@ -63,3 +75,4 @@ class MeasurementInstance:
         self.startPoint = jsonData["startPoint"]
         self.endPoint = jsonData["endPoint"]
         self.distanceMeasured = jsonData["distanceMeasured"]
+        # mark_delete does not need to be serialized

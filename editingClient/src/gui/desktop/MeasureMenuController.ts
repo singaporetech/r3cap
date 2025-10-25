@@ -4,21 +4,22 @@
  * for measuring distances within a 3D scene using Babylon.js. It allows users to create measurement lines
  * and displays the distance between two points in the scene.
  * 
- * @author nirmalsnair, leonfoo
+ * @author nirmalsnair, leonfoo, wesleyqua
  * @date 09/12/2024
  */
 
 import { AdvancedDynamicTexture, Rectangle, TextBlock } from "@babylonjs/gui";
-import { Scene, Vector3, MeshBuilder, LinesMesh, Mesh } from "@babylonjs/core";
+import { Scene, Vector3, MeshBuilder, LinesMesh, Mesh, Color3, StandardMaterial } from "@babylonjs/core";
 import { GuiMenu, GuiMenuToggle, GuiMenuManager } from "../GuiMenu";
 import { SocketHandler } from "../../networking/WebSocketManager";
 import { MeasurementData } from "../../utilities/data/MeasurementData";
-import { RenderConfig } from "../../config";
+import { RenderConfig, MeasurementConfig } from "../../config";
 import { MeasurementPlateObject } from "../MeasurementPlateObject";
 import { ButtonMetadata } from "../../utilities/data/ObjectsData";
 import { UIUtility } from "../../utilities/UIUtility";
 import { PointerInfo, PointerEventTypes } from "@babylonjs/core/Events/pointerEvents";
 import { IPointerEvent } from "@babylonjs/core/Events/deviceInputEvents";
+import { ActionStates } from "../../utilities/enums/enums";
 
 /**
  * Manages the measurement functionality in the 3D scene.
@@ -31,29 +32,51 @@ export class MeasureMenuController
     
     scene!: Scene;
     toggleButton!: Rectangle;
-    /** Stores all active measurements in the scene */
-    measurementsList: Map<number, MeasurementData>;
     
-    /** The starting point of the current measurement */
+    // Action buttons for add/delete 
+    measurementCreateButton!: Rectangle;
+    measurementDeleteButton!: Rectangle;
+    selectActionsContainer!: Rectangle;
+    selectActionsGUIMenu!: GuiMenu;
+    selectActionsMenuGroup!: GuiMenuToggle;
+    
+    // Stores all active measurement plate objects (contains both data and visuals)
+    measurementsList: Map<number, MeasurementPlateObject>;
+    
+    // Current action state (None, Add, Remove)
+    private currentActionState: ActionStates = ActionStates.None;
+    
     startPoint: Vector3 | null = null;
-    /** The current line being drawn for measurement */
     currentLine: LinesMesh | null = null;
-    currentxAxis: LinesMesh | null = null;
-    currentyAxis: LinesMesh | null = null;
-    currentzAxis: LinesMesh | null = null;
+    
+    private isDraggingMeasurement: boolean = false;
+    private lastValidPickedPoint: Vector3 | null = null;
     
     // Store observable handlers for proper cleanup
     private pointerObserver: any = null;
     private beforeRenderObserver: any = null;
-    // Add a property to hold the dynamic text mesh
     dynamicTextMesh: Mesh | null = null;
+
+    // Edit mode properties 
+    private isMovingPoint: boolean = false;
+    private selectedMeasurementId: number = -1;
+    private selectedPointType: "start" | "end" | null = null;
+    private selectedPlateObject: MeasurementPlateObject | null = null;
+    
+    // Preview elements for click-and-move 
+    private fixedPoint: Vector3 | null = null;
+    private movePreviewLine: LinesMesh | null = null;
+    private movePreviewText: Mesh | null = null;
+
+    private hoveredMeasurementId: number = -1;
+    private hoveredPointType: "start" | "end" | null = null;
 
     public plateObjects: Map<number, MeasurementPlateObject> = new Map<number, MeasurementPlateObject>;
 
     constructor() 
     {
         MeasureMenuController.instance = this;
-        this.measurementsList = new Map<number, MeasurementData>(); // Initialize the measurementsList
+        this.measurementsList = new Map<number, MeasurementPlateObject>(); // Initialize the measurementsList
     }
 
     /**
@@ -79,88 +102,318 @@ export class MeasureMenuController
         this.toggleButton.onPointerEnterObservable.add(UIUtility.SetHoverOn)
         this.toggleButton.onPointerOutObservable.add(UIUtility.SetHoverOff)
 
+        const measurementSelectToolActionContainer = advDynamicTexture.getControlByName("Measurement_SelectTool_Container") as Rectangle;
+        if (measurementSelectToolActionContainer) 
+            {
+            this.selectActionsContainer = measurementSelectToolActionContainer;
+            this.selectActionsContainer.isVisible = false;
+            
+            this.selectActionsGUIMenu = new GuiMenu(this.selectActionsContainer);
+            this.selectActionsGUIMenu.OnEnableCallback = () => 
+            {
+                this.selectActionsGUIMenu.container.isVisible = true;
+                UIUtility.SetSelectedOn(this.toggleButton as Rectangle);
+            };
+            this.selectActionsGUIMenu.OnDisableCallback = () => 
+            {
+                this.selectActionsGUIMenu.container.isVisible = false;
+                UIUtility.SetSelectedOff(this.toggleButton as Rectangle);
+            };
+        }
+
         // Setup GUI menu and toggle group
         const guiMenu = new GuiMenu(this.toggleButton);
         guiMenu.OnEnableCallback = () => 
             {
-            this.enableMeasuring();
+            this.EnableMeasuring();
             this.toggleButton.metadata.isSelected = true;
+            if (this.selectActionsGUIMenu) 
+            {
+                this.selectActionsGUIMenu.container.isVisible = true;
+            }
         };
 
         guiMenu.OnDisableCallback = () => 
             {
-            this.disableMeasuring();
+            this.DisableMeasuring();
             this.toggleButton.metadata.isSelected = false;
+            if (this.selectActionsGUIMenu) 
+            {
+                this.selectActionsGUIMenu.container.isVisible = false;
+            }
         };
 
         const menuMeasureGroup = new GuiMenuToggle(this.toggleButton, guiMenu);
+        if (this.selectActionsGUIMenu) 
+        {
+            this.selectActionsMenuGroup = new GuiMenuToggle(this.toggleButton, this.selectActionsGUIMenu);
+        }
+        
         const toggleGroup = GuiMenuManager.instance.FindOrCreateToggleGroup("Navbar");
         toggleGroup.AddToggle(menuMeasureGroup);
+        
         // Handle button selection
         this.toggleButton.onPointerDownObservable.add(() => 
             {
             toggleGroup.ActivateToggle(menuMeasureGroup);
+            this.SetActionState(ActionStates.None);
+        });
+        
+        this.SetupCreateAndDeleteActions(advDynamicTexture);
+    }
+    
+    /**
+     * Sets up the create and delete action buttons similar to AnnotationMenuController
+     */
+    private SetupCreateAndDeleteActions(advDynamicTexture: AdvancedDynamicTexture): void 
+    {
+        this.measurementCreateButton = advDynamicTexture.getControlByName("Measurement_Create") as Rectangle;
+        this.measurementDeleteButton = advDynamicTexture.getControlByName("Measurement_Delete") as Rectangle;
+        
+        if (!this.measurementCreateButton || !this.measurementDeleteButton) 
+        {
+            console.warn("Measurement Create/Delete buttons not found in GUI. Button functionality will not be available.");
+            return;
+        }
+
+        if (this.measurementCreateButton.children[0]) 
+        {
+            this.measurementCreateButton.children[0].isEnabled = false;
+        }
+        if (this.measurementDeleteButton.children[0]) 
+        {
+            this.measurementDeleteButton.children[0].isEnabled = false;
+        }
+
+        this.measurementCreateButton.metadata = new ButtonMetadata();
+        this.measurementDeleteButton.metadata = new ButtonMetadata();
+
+        this.measurementCreateButton.onPointerEnterObservable.add(UIUtility.SetHoverOn);
+        this.measurementCreateButton.onPointerOutObservable.add(UIUtility.SetHoverOff);
+        this.measurementDeleteButton.onPointerEnterObservable.add(UIUtility.SetHoverOn);
+        this.measurementDeleteButton.onPointerOutObservable.add(UIUtility.SetHoverOff);
+
+        this.measurementCreateButton.onPointerDownObservable.add((eventData, eventState) => 
+        {
+            if (eventData) {} // Suppress warning
+            if (!eventState.target) return;
+            if (eventState.target !== this.measurementCreateButton) return;
+            const newState = (this.currentActionState === ActionStates.Add) ? ActionStates.None : ActionStates.Add;
+            this.SetActionState(newState);
+        });
+
+        this.measurementDeleteButton.onPointerDownObservable.add((eventData, eventState) => 
+        {
+            if (eventData) {} // Suppress warning
+            if (!eventState.target) return;
+            if (eventState.target !== this.measurementDeleteButton) return;
+            const newState = (this.currentActionState === ActionStates.Remove) ? ActionStates.None : ActionStates.Remove;
+            this.SetActionState(newState);
         });
     }
-
+    
     /**
-     * Creates a small 3-axis indicator at the given position.
-     * This helps users visualize the orientation of the measurement point.
-     * @param position - The position where the axis should be created.
+     * Sets the current action state and updates button visual states
+     * @param state - The new action state (None, Add, Remove)
      */
-    public createAxisIndicator(position: Vector3): void 
+    private SetActionState(state: ActionStates): void 
     {
-        // Use the class from MeasurementPlateObject to create axis indicators
-        const tempPlateObject = new MeasurementPlateObject();
-        tempPlateObject.init(this.scene);        
-        tempPlateObject.createStartAxis(position);
+        this.currentActionState = state;
+        this.UpdateActionButtonStates(state);
         
-        // Manually extract and store the axes from the temporary object
-        this.currentxAxis = tempPlateObject.startAxis.get(0) as LinesMesh;
-        this.currentyAxis = tempPlateObject.startAxis.get(1) as LinesMesh;
-        this.currentzAxis = tempPlateObject.startAxis.get(2) as LinesMesh;
+        if (this.currentActionState !== ActionStates.Remove && this.hoveredMeasurementId !== -1) 
+        {
+            this.SetMeasurementColor(this.hoveredMeasurementId, MeasurementConfig.colors_default);
+            this.hoveredMeasurementId = -1;
+        }
         
-        // Clear the temporary object's references so it doesn't dispose our axes
-        tempPlateObject.startAxis.clear();
+        // Log state changes
+        if (state === ActionStates.Remove) 
+        {
+            console.log("Delete mode ENABLED - Hover over measurements to highlight them red, then click to delete");
+        } 
+        else if (state === ActionStates.Add)
+        {
+            console.log("Add mode ENABLED - Click to create measurements");
+        }
+        else 
+        {
+            console.log("Action mode DISABLED");
+        }
+    }
+    
+    /**
+     * Updates the visual state of action buttons based on current action state
+     * @param action - The current action state
+     */
+    private UpdateActionButtonStates(action: ActionStates): void 
+    {
+        if (!this.measurementCreateButton || !this.measurementDeleteButton) {
+            return;
+        }
+        
+        switch(action) 
+        {
+            case ActionStates.None:
+                UIUtility.SetSelectedOff(this.measurementCreateButton);
+                UIUtility.SetSelectedOff(this.measurementDeleteButton);
+                break;
+            case ActionStates.Add:
+                UIUtility.SetSelectedOn(this.measurementCreateButton);
+                UIUtility.SetSelectedOff(this.measurementDeleteButton);
+                break;
+            case ActionStates.Remove:
+                UIUtility.SetSelectedOff(this.measurementCreateButton);
+                UIUtility.SetSelectedOn(this.measurementDeleteButton);
+                break;
+            default:
+                console.warn("Invalid action state value: " + action);
+                break;
+        }
+        
+        console.log("Measurement action state changed to: " + action);
     }
 
     /**
-     * Clears and disposes the current axis indicators.
+     * Toggles delete mode on/off (for keyboard shortcut)
      */
-    private clearCreateAxisIndicator(): void
-     {
-        if (this.currentxAxis) 
-            {
-            this.currentxAxis.dispose();
-            this.currentxAxis = null;
+    private ToggleDeleteMode(): void 
+    {
+        const newState = (this.currentActionState === ActionStates.Remove) ? ActionStates.None : ActionStates.Remove;
+        this.SetActionState(newState);
+    }
+
+    /**
+     * Deletes a measurement by ID
+     */
+    private DeleteMeasurement(measurementId: number): void 
+    {
+        if (measurementId === -1) 
+        {
+            console.warn("No measurement to delete");
+            return;
         }
-        
-        if (this.currentyAxis)
-             {
-            this.currentyAxis.dispose();
-            this.currentyAxis = null;
-        }
-        
-        if (this.currentzAxis) 
+
+        this.SendDeleteMeasurementRequestToServer(measurementId);
+        console.log(`Sent request for deleting measurement ${measurementId}`);
+    }
+
+    /**
+     * Sets a measurement line and spheres color
+     * @param measurementId - The ID of the measurement to color
+     * @param colorHex - The hex color string to apply
+     */
+    private SetMeasurementColor(measurementId: number, colorHex: string): void 
+    {
+        const plateObject = this.plateObjects.get(measurementId);
+        if (plateObject) 
+        {
+            if (plateObject.line) 
             {
-            this.currentzAxis.dispose();
-            this.currentzAxis = null;
+                plateObject.line.color = Color3.FromHexString(colorHex);
+            }
+            if (plateObject.startPointCollider && plateObject.startPointCollider.material) 
+            {
+                (plateObject.startPointCollider.material as StandardMaterial).emissiveColor = Color3.FromHexString(colorHex);
+            }
+            if (plateObject.endPointCollider && plateObject.endPointCollider.material) 
+            {
+                (plateObject.endPointCollider.material as StandardMaterial).emissiveColor = Color3.FromHexString(colorHex);
+            }
         }
     }
+
+    /**
+     * Sends measurement deletion request to server
+     */
+    private SendDeleteMeasurementRequestToServer(measurementId: number): void 
+    {
+        try {
+            SocketHandler.SendData(
+                SocketHandler.CodeToServer.EditServer_ClientRequest_DeleteMeasurementObject, 
+                { measurement_instance_id: measurementId }
+            );
+
+            console.log("Measurement deletion sent to server:", measurementId);
+        } catch (error) {
+            console.error("Error sending measurement deletion to server:", error);
+        }
+    }
+
+    /**
+     * Handles receiving measurement deletion from server
+     */
+    public ReceiveDeleteMeasurementRequestFromServer(deleteData: { measurement_instance_id: number }): void 
+    {
+        const measurementId = deleteData.measurement_instance_id;
+        const plateObject = this.plateObjects.get(measurementId);
+
+        if (!plateObject) 
+        {
+            console.warn(`Received delete request for unknown measurement ${measurementId}`);
+            return;
+        }
+
+        plateObject.ClearGUI();
+
+        this.plateObjects.delete(measurementId);
+        this.measurementsList.delete(measurementId);
+
+        // Reset selection state if we deleted the selected measurement
+        if (this.selectedMeasurementId === measurementId) 
+        {
+            this.ClearMovePreview();
+            this.isMovingPoint = false;
+            this.selectedPlateObject = null;
+            this.selectedPointType = null;
+            this.selectedMeasurementId = -1;
+            this.fixedPoint = null;
+        }
+
+
+        console.log(`Deleted measurement ${measurementId} from server request`);
+    }
+
 
     /**
      * Enables the measuring functionality, allowing users to create measurement lines.
      * Sets up event listeners for pointer interactions and keyboard input.
      */
-    private enableMeasuring(): void 
+    private EnableMeasuring(): void 
     {
         if (!this.scene) return;
 
         const onKeyDown = (event: KeyboardEvent) =>
              {
             if (event.key === "Escape") 
+            {
+                if (this.currentActionState !== ActionStates.None) 
                 {
-                this.disableMeasuring();
+                    this.SetActionState(ActionStates.None);
+                } else 
+                {
+                    this.DisableMeasuring();
+                }
+            }
+            if (event.key === "x" || event.key === "X") 
+            {
+                if (this.isMovingPoint && this.selectedMeasurementId !== -1) 
+                {
+                    // Cancel the move operation first
+                    this.ClearMovePreview();
+                    this.isMovingPoint = false;
+                    this.selectedPlateObject = null;
+                    this.selectedPointType = null;
+                    this.fixedPoint = null;
+                    
+                    // Delete the measurement
+                    this.DeleteMeasurement(this.selectedMeasurementId);
+                    this.selectedMeasurementId = -1;
+                    
+                    return;
+                }
+                
+                this.ToggleDeleteMode();
             }
         };
         
@@ -170,12 +423,16 @@ export class MeasureMenuController
             {
             if (pointerInfo.type === PointerEventTypes.POINTERDOWN) 
                 {
-                this.handlePointerDown(pointerInfo);
+                this.HandlePointerDown(pointerInfo);
+            }
+            else if (pointerInfo.type === PointerEventTypes.POINTERUP)
+                {
+                this.HandlePointerUp(pointerInfo);
             }
         });
         
 
-        this.beforeRenderObserver = this.scene.onBeforeRenderObservable.add(() => this.handlePointerMove());
+        this.beforeRenderObserver = this.scene.onBeforeRenderObservable.add(() => this.HandlePointerMove());
 
         this.scene.onDisposeObservable.addOnce(() => 
             {
@@ -183,11 +440,12 @@ export class MeasureMenuController
         });
     }
 
+
     /**
      * Handles pointer down events for measurements.
-     * First click sets the start point, second click sets the end point.
+     * In delete mode, clicking on a measurement deletes it.
      */
-    private handlePointerDown(pointerInfo: PointerInfo): void 
+    private HandlePointerDown(pointerInfo: PointerInfo): void 
     {
         if (!this.scene) return;
 
@@ -196,47 +454,357 @@ export class MeasureMenuController
         if (event.pointerType === "mouse" && event.button !== 0) return;
         
         const pickResult = this.scene.pick(this.scene.pointerX, this.scene.pointerY);
+
+        // If it did not pick anything
         if (!pickResult.hit || !pickResult.pickedPoint) return;
 
-        if (!this.startPoint) 
+        // If it is currently delete mode and something is being hovered on
+        if (this.currentActionState === ActionStates.Remove && this.hoveredMeasurementId !== -1) 
+        {
+            this.DeleteMeasurement(this.hoveredMeasurementId);
+            return;
+        }
+
+        // Don't allow any other interactions in delete mode
+        if (this.currentActionState === ActionStates.Remove) 
+        {
+            return;
+        }
+
+        // If picked and valid
+        if (pickResult.pickedMesh && pickResult.pickedMesh.metadata) 
+        {
+            const metadata = pickResult.pickedMesh.metadata;
+            if (metadata.measurementPlate && metadata.pointType && metadata.measurementId) 
             {
-            // First click - start measurement
-            this.createAxisIndicator(pickResult.pickedPoint);
-            this.startNewMeasurement(pickResult.pickedPoint);
-        } else 
-            {
-            // Second click - complete measurement
-            this.clearCreateAxisIndicator();
-            this.completeMeasurement(pickResult.pickedPoint);
+                this.StartMovingPoint(metadata.measurementPlate, metadata.pointType, metadata.measurementId);
+                return;
+            }
+        }
+
+        // If Add mode and nothing is dragged 
+        if (this.currentActionState === ActionStates.Add && !this.isDraggingMeasurement && !this.isMovingPoint) 
+        {
+            this.StartNewMeasurement(pickResult.pickedPoint);
+            this.isDraggingMeasurement = true;
         }
     }
 
     /**
-     * Handles pointer move events for updating the measurement preview.
+     * Handles pointer up events for measurements.
+     * Completes a drag operation for creating or editing measurements.
      */
-    private handlePointerMove(): void 
+    private HandlePointerUp(pointerInfo: PointerInfo): void 
     {
-        if (!this.scene || !this.startPoint || !this.currentLine) return;
+        if (!this.scene) return;
+
+        const event = pointerInfo.event as IPointerEvent;
+        // Check if it's a mouse event with non-left button
+        if (event.pointerType === "mouse" && event.button !== 0) return;
 
         const pickResult = this.scene.pick(this.scene.pointerX, this.scene.pointerY);
-        if (!pickResult.hit || !pickResult.pickedPoint) return;
 
-        this.updateMeasuringDisplay(pickResult.pickedPoint);
+        if (this.isMovingPoint && this.selectedPlateObject && this.selectedPointType) 
+        {
+            const pointToUse = (pickResult.hit && pickResult.pickedPoint) ? pickResult.pickedPoint : this.lastValidPickedPoint;
+            if (pointToUse) 
+            {
+                this.CompleteMove(pointToUse);
+            } else 
+            {
+                this.CancelMoveOperation();
+            }
+            return;
+        }
+
+        // Complete measurement creation if we were dragging
+        if (this.isDraggingMeasurement && this.startPoint) 
+        {
+            // Use clamped point if out of bounds
+            const pointToUse = (pickResult.hit && pickResult.pickedPoint) ? pickResult.pickedPoint : this.lastValidPickedPoint;
+            if (pointToUse) 
+            {
+                this.CompleteMeasurement(pointToUse);
+            } else 
+            {
+                this.CancelMeasurementCreation();
+            }
+            this.isDraggingMeasurement = false;
+        }
+    }
+
+
+    /**
+     * Handles pointer move events for updating the measurement preview or move preview.
+     * In delete mode, highlights measurements red when hovering over them.
+     */
+    private HandlePointerMove(): void 
+    {
+        if (!this.scene) return;
+
+        const pickResult = this.scene.pick(this.scene.pointerX, this.scene.pointerY);
+        
+        if (this.currentActionState === ActionStates.Remove) 
+        {
+            let newHoveredId = -1;
+            
+            // Check if we're hovering over a measurement collider
+            if (pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.metadata) 
+            {
+                const metadata = pickResult.pickedMesh.metadata;
+                if (metadata.measurementId !== undefined) 
+                {
+                    newHoveredId = metadata.measurementId;
+                }
+            }
+            
+            // If hovered measurement changed, update colors
+            if (newHoveredId !== this.hoveredMeasurementId) 
+            {
+                // Reset previous hovered measurement color
+                if (this.hoveredMeasurementId !== -1) 
+                {
+                    this.SetMeasurementColor(this.hoveredMeasurementId, MeasurementConfig.colors_default);
+                }
+                
+                // Set new hovered measurement color to red
+                if (newHoveredId !== -1) 
+                {
+                    this.SetMeasurementColor(newHoveredId, MeasurementConfig.colors_delete);
+                }
+                
+                this.hoveredMeasurementId = newHoveredId;
+            }
+            
+            return; // Don't process other pointer move logic in delete mode
+        }
+
+        if (!this.isMovingPoint && !this.isDraggingMeasurement) 
+        {
+            let newHoveredId = -1;
+            let newHoveredPointType: "start" | "end" | null = null;
+            
+            if (pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.metadata) 
+            {
+                const metadata = pickResult.pickedMesh.metadata;
+                if (metadata.measurementPlate && metadata.pointType && metadata.measurementId) 
+                {
+                    newHoveredId = metadata.measurementId;
+                    newHoveredPointType = metadata.pointType;
+                }
+            }
+            
+            if (newHoveredId !== this.hoveredMeasurementId || newHoveredPointType !== this.hoveredPointType) 
+            {
+                // Reset previous hovered measurement
+                if (this.hoveredMeasurementId !== -1) 
+                {
+                    const prevPlateObject = this.plateObjects.get(this.hoveredMeasurementId);
+                    if (prevPlateObject) 
+                    {
+                        if (prevPlateObject.line) 
+                        {
+                            prevPlateObject.line.color = Color3.FromHexString(MeasurementConfig.colors_default);
+                        }
+                        if (this.hoveredPointType) 
+                        {
+                            prevPlateObject.SetPointColor(this.hoveredPointType, Color3.FromHexString(MeasurementConfig.colors_point_default));
+                        }
+                        prevPlateObject.SetRenderingGroup(RenderConfig.worldSpace);
+                    }
+                }
+                
+                if (newHoveredId !== -1 && newHoveredPointType) 
+                {
+                    const plateObject = this.plateObjects.get(newHoveredId);
+                    if (plateObject) 
+                    {
+                        if (plateObject.line) 
+                        {
+                            plateObject.line.color = Color3.FromHexString(MeasurementConfig.colors_hover);
+                        }
+                        plateObject.SetPointColor(newHoveredPointType, Color3.FromHexString(MeasurementConfig.colors_hover));
+                        plateObject.SetRenderingGroup(RenderConfig.highlights);
+                    }
+                }
+                
+                this.hoveredMeasurementId = newHoveredId;
+                this.hoveredPointType = newHoveredPointType;
+            }
+        }
+
+        // Track the last valid picked point for clamping
+        if (pickResult.hit && pickResult.pickedPoint) 
+        {
+            this.lastValidPickedPoint = pickResult.pickedPoint.clone();
+        }
+
+        // Use clamped point if out of bounds
+        const pointToUse = (pickResult.hit && pickResult.pickedPoint) ? pickResult.pickedPoint : this.lastValidPickedPoint;
+        if (!pointToUse) return;
+
+        if (this.isMovingPoint && this.selectedPlateObject && this.selectedPointType) 
+        {
+            this.UpdateMovePreview(pointToUse);
+        } else if (this.isDraggingMeasurement && this.startPoint && this.currentLine) 
+        {
+            // Update measurement preview while dragging
+            this.UpdateMeasuringDisplay(pointToUse);
+        }
+    }
+
+    /**
+     * Starts moving a measurement point (first click on the point)
+     * Hides the original plate and stores the fixed point
+     */
+    private StartMovingPoint(plateObject: MeasurementPlateObject, pointType: "start" | "end", measurementId: number): void {
+        this.isMovingPoint = true;
+        this.selectedPlateObject = plateObject;
+        this.selectedPointType = pointType;
+        this.selectedMeasurementId = measurementId;
+
+        // Store the fixed point (the one we're NOT moving)
+        const currentStart = plateObject.startPoint;
+        const currentEnd = plateObject.endPoint;
+        this.fixedPoint = (pointType === "start") ? currentEnd : currentStart;
+
+        plateObject.SetColor(Color3.FromHexString(MeasurementConfig.colors_hover));
+
+        // Hide the original plate by clearing its GUI
+        plateObject.ClearGUI();
+
+        console.log(`Started moving ${pointType} point of measurement ${this.selectedMeasurementId}`);
+    }
+
+    /**
+     * Updates the preview while moving a measurement point
+     */
+    private UpdateMovePreview(newPosition: Vector3): void 
+    {
+        if (!this.fixedPoint) return;
+
+        // Clear previous preview elements
+        this.ClearMovePreview();
+
+        const distance = Vector3.Distance(this.fixedPoint, newPosition);
+        const midPoint = this.fixedPoint.add(newPosition).scale(0.5);
+
+        // Create preview line from fixed point to cursor (green color)
+        this.movePreviewLine = MeshBuilder.CreateLines("movePreviewLine", 
+        {
+            points: [this.fixedPoint, newPosition],
+            updatable: true
+        }, this.scene);
+        this.movePreviewLine.color = Color3.FromHexString(MeasurementConfig.colors_hover);
+        this.movePreviewLine.isPickable = false;
+        this.movePreviewLine.renderingGroupId = RenderConfig.worldSpace;
+
+        // Create text showing the distance
+        this.movePreviewText = this.CreateMeasurementText(`${distance.toFixed(2)}m`, midPoint);
+    }
+
+    /**
+     * Clears the move preview elements
+     */
+    private ClearMovePreview(): void 
+    {
+        if (this.movePreviewLine) 
+        {
+            this.movePreviewLine.dispose();
+            this.movePreviewLine = null;
+        }
+        if (this.movePreviewText) 
+        {
+            this.movePreviewText.dispose();
+            this.movePreviewText = null;
+        }
+    }
+
+    /**
+     * Completes the move operation 
+     */
+    private CompleteMove(finalPosition: Vector3): void 
+    {
+        if (!this.selectedPlateObject || !this.selectedPointType || !this.fixedPoint) return;
+
+        let newStartPoint: Vector3;
+        let newEndPoint: Vector3;
+
+        if (this.selectedPointType === "start") 
+        {
+            newStartPoint = finalPosition;
+            newEndPoint = this.fixedPoint;
+        } else 
+        {
+            newStartPoint = this.fixedPoint;
+            newEndPoint = finalPosition;
+        }
+
+        this.UpdateExistingMeasurement(this.selectedMeasurementId, newStartPoint, newEndPoint);
+
+        this.ClearMovePreview();
+
+        this.isMovingPoint = false;
+        this.selectedPlateObject = null;
+        this.selectedPointType = null;
+        this.selectedMeasurementId = -1;
+        this.fixedPoint = null;
+    }
+
+    /**
+     * Cancels the move operation and restores the measurement
+     */
+    private CancelMoveOperation(): void 
+    {
+        if (!this.selectedPlateObject) return;
+
+        this.selectedPlateObject.InitPlate();
+
+        this.ClearMovePreview();
+
+        this.isMovingPoint = false;
+        this.selectedPlateObject = null;
+        this.selectedPointType = null;
+        this.selectedMeasurementId = -1;
+        this.fixedPoint = null;
+
+    }
+
+    /**
+     * Cancels the measurement creation
+     */
+    private CancelMeasurementCreation(): void 
+    {
+        // Dispose of the preview line
+        if (this.currentLine) 
+        {
+            this.currentLine.dispose();
+            this.currentLine = null;
+        }
+
+        // Dispose of the dynamic text
+        if (this.dynamicTextMesh) 
+        {
+            this.dynamicTextMesh.dispose();
+            this.dynamicTextMesh = null;
+        }
+
+        this.startPoint = null;
     }
 
     /**
      * Starts a new measurement from the given point.
      * @param pickedPoint - The starting point of the measurement.
      */
-    public startNewMeasurement(pickedPoint: Vector3): void 
+    public StartNewMeasurement(pickedPoint: Vector3): void 
     {
         this.startPoint = pickedPoint.clone();
         this.currentLine = MeshBuilder.CreateLines("measureLine", 
-            {
+        {
             points: [this.startPoint, this.startPoint.clone()],
             updatable: true
         }, this.scene);
-        this.currentLine.renderingGroupId = RenderConfig.highlights;
+        this.currentLine.renderingGroupId = RenderConfig.worldSpace;
         this.currentLine.isPickable = false;
     }
 
@@ -244,11 +812,12 @@ export class MeasureMenuController
      * Completes the current measurement with the given end point.
      * @param endPoint - The ending point of the measurement.
      */
-    public completeMeasurement(endPoint: Vector3): void 
+    public CompleteMeasurement(endPoint: Vector3): void 
     {
         const distance = Vector3.Distance(this.startPoint, endPoint);
 
-        const measurementId = Math.floor(10000000 + Math.random() * 90000000);
+        // The ID we send dosen't matter because the server assigns the measurement ID
+        const measurementId = -1;
         const sendData = 
         {
             measurement_instance_id: measurementId,
@@ -259,16 +828,17 @@ export class MeasureMenuController
 
         // Send the measurement data to the server
         this.SendCreateNewMeasurementRequestToServer(sendData);
+        this.selectedMeasurementId = measurementId;
 
         //dispose tool line UI
         if (this.currentLine) 
-            {
+        {
             this.currentLine.dispose();
         }
 
         // Dispose of the dynamic text
         if (this.dynamicTextMesh) 
-            {
+        {
             this.dynamicTextMesh.dispose();
             this.dynamicTextMesh = null;
         }
@@ -282,13 +852,13 @@ export class MeasureMenuController
      * Updates the measurement display while dragging.
      * @param pickedPoint - The current endpoint based on pointer position.
      */
-    public updateMeasuringDisplay(pickedPoint: Vector3): void 
+    public UpdateMeasuringDisplay(pickedPoint: Vector3): void 
     {
         if (!this.startPoint) return;
         
         // Update the line to show the current measurement
         this.currentLine = MeshBuilder.CreateLines("measureLine", 
-            {
+        {
             points: [this.startPoint, pickedPoint],
             instance: this.currentLine
         });
@@ -298,12 +868,11 @@ export class MeasureMenuController
 
         // Clean up previous text mesh if it exists
         if (this.dynamicTextMesh) 
-            {
+        {
             this.dynamicTextMesh.dispose();
         }
         
-        // Create a new text mesh showing the current distance
-        this.dynamicTextMesh = this.createMeasurementText(`${distance.toFixed(2)}m`, midPoint);
+        this.dynamicTextMesh = this.CreateMeasurementText(`${distance.toFixed(2)}m`, midPoint);
     }
 
     /**
@@ -312,19 +881,24 @@ export class MeasureMenuController
      * @param position - The position of the text in 3D space.
      * @returns A mesh representing the 3D text.
      */
-    public createMeasurementText(text: string, position: Vector3): Mesh 
+    public CreateMeasurementText(text: string, position: Vector3): Mesh 
     {
-        // Create a temporary plate object to use its text creation method
-        const tempPlateObject = new MeasurementPlateObject();
-        tempPlateObject.init(this.scene);        
-        return tempPlateObject.create3DText(text, position);
+        // Create a temporary plate object just for text rendering
+        const tempPlateObject = new MeasurementPlateObject(
+            -1,
+            Vector3.Zero(),
+            Vector3.Zero(),
+            0,
+            this.scene
+        );
+        return tempPlateObject.Create3DText(text, position);
     }
 
     /**
      * Disables the measuring functionality, stopping any active measurements.
      * Cleans up event listeners and resets the current measurement state.
      */
-    private disableMeasuring(): void {
+    private DisableMeasuring(): void {
         if (!this.scene) return;
 
         if (this.pointerObserver) 
@@ -339,8 +913,14 @@ export class MeasureMenuController
             this.beforeRenderObserver = null;
         }
         
+        if (this.currentActionState !== ActionStates.None) 
+        {
+            this.SetActionState(ActionStates.None);
+        }
+        
         // Clear state
         this.startPoint = null;
+        this.isDraggingMeasurement = false;
         
         // Dispose of resources
         if (this.currentLine) 
@@ -354,8 +934,6 @@ export class MeasureMenuController
             this.dynamicTextMesh.dispose();
             this.dynamicTextMesh = null;
         }
-        
-        this.clearCreateAxisIndicator();
     }
 
     /**
@@ -384,19 +962,10 @@ export class MeasureMenuController
 
         try 
         {
-            // Create a new measurement data entry
-            const newMeasurementEntry = new MeasurementData(
-                jsonData.measurement_instance_id,
-                jsonData.startPoint,
-                jsonData.endPoint,
-                jsonData.distanceMeasured
-            );
-
             let startPoint: Vector3;
             let endPoint: Vector3;
             
             if (jsonData.startPoint instanceof Vector3) 
-                
                 {
                 startPoint = jsonData.startPoint;
             } else 
@@ -424,14 +993,20 @@ export class MeasureMenuController
                 );
             }
                 
-            const distance = jsonData.distanceMeasured;           
-            this.measurementsList.set(jsonData.measurement_instance_id, newMeasurementEntry);
+            const distance = jsonData.distanceMeasured;
 
             // ============= Create UI and store them =============
-            const newMeasurementPlate = new MeasurementPlateObject();
-            newMeasurementPlate.init(this.scene);
-            newMeasurementPlate.initPlate(startPoint, endPoint, distance);
+            const newMeasurementPlate = new MeasurementPlateObject(
+                jsonData.measurement_instance_id,
+                startPoint,
+                endPoint,
+                distance,
+                this.scene
+            );
+            newMeasurementPlate.InitPlate();
 
+            // Store the measurement in both maps
+            this.measurementsList.set(jsonData.measurement_instance_id, newMeasurementPlate);
             this.plateObjects.set(jsonData.measurement_instance_id, newMeasurementPlate);
         } catch (error) 
         {
@@ -507,7 +1082,7 @@ export class MeasureMenuController
     /**
      * Clears all measurement data from the list.
      */
-    public clearMeasurementData(): void 
+    public ClearMeasurementData(): void 
     {
         this.measurementsList.clear();
     }
@@ -515,15 +1090,13 @@ export class MeasureMenuController
     /**
      * Clears all GUI objects associated with measurements.
      */
-    public clearGUIObjects(): void 
+    public ClearGUIObjects(): void 
     {
-        this.clearCreateAxisIndicator();
-        
         for (const measurementPlate of this.plateObjects.values()) 
             {
             if (measurementPlate) 
                 {
-                measurementPlate.clearGUI();
+                measurementPlate.ClearGUI();
             }
         }
         
@@ -531,11 +1104,137 @@ export class MeasureMenuController
     }
     
     /**
-     * Gets all current measurement data.
-     * @returns An array of all measurement data.
+     * Updates an existing measurement with new points
+     * @param measurementId - The ID of the measurement to update
+     * @param newStartPoint - The new start point
+     * @param newEndPoint - The new end point
      */
-    public getAllMeasurements(): MeasurementData[] 
-    {
-        return Array.from(this.measurementsList.values());
+    public UpdateExistingMeasurement(measurementId: number, newStartPoint: Vector3, newEndPoint: Vector3): void {
+
+        const plateObject = this.plateObjects.get(measurementId);
+        const measurementData = this.measurementsList.get(measurementId);
+        
+        if (!plateObject || !measurementData) 
+            {
+            console.error(`Measurement ${measurementId} not found`);
+            return;
+        }
+
+        const distance = Vector3.Distance(newStartPoint, newEndPoint);
+
+        // Update the measurement data
+        measurementData.startPoint = newStartPoint;
+        measurementData.endPoint = newEndPoint;
+        measurementData.distanceMeasured = distance;
+
+        plateObject.UpdateMeasurement(newStartPoint, newEndPoint);
+
+        if (plateObject.startPointCollider) 
+            {
+            plateObject.startPointCollider.metadata.measurementId = measurementId;
+        }
+        if (plateObject.endPointCollider) 
+            {
+            plateObject.endPointCollider.metadata.measurementId = measurementId;
+        }
+
+        // Send update to server
+        this.SendUpdateMeasurementRequestToServer(
+            {
+            measurement_instance_id: measurementId,
+            startPoint: newStartPoint,
+            endPoint: newEndPoint,
+            distanceMeasured: distance
+        });
     }
+
+    /**
+     * Sends measurement update to server
+     */
+    private SendUpdateMeasurementRequestToServer(sendData: {
+        measurement_instance_id: number,
+        startPoint: Vector3,
+        endPoint: Vector3,
+        distanceMeasured: number
+    }): void 
+    {
+        try {
+            
+            SocketHandler.SendData(
+                SocketHandler.CodeToServer.EditServer_ClientRequest_UpdateMeasurementObject, 
+                sendData
+            );
+
+            console.log("Measurement update sent to server:", sendData.measurement_instance_id);
+        } catch (error) 
+        {
+            console.error("Error sending measurement update to server:", error);
+        }
+    }
+
+    /**
+     * Handles receiving measurement updates from server
+     */
+    public ReceiveUpdateMeasurementRequestFromServer(updateData: 
+        {
+        measurement_instance_id: number,
+        startPoint: Vector3,
+        endPoint: Vector3,
+        distanceMeasured: number
+    }): void 
+    {
+        const plateObject = this.plateObjects.get(updateData.measurement_instance_id);
+        const measurementData = this.measurementsList.get(updateData.measurement_instance_id);
+        
+        if (!plateObject || !measurementData) 
+            {
+            console.warn(`Received update for unknown measurement ${updateData.measurement_instance_id}`);
+            return;
+        }
+
+        let startPoint: Vector3;
+        let endPoint: Vector3;
+        
+        if (updateData.startPoint instanceof Vector3) 
+            {
+            startPoint = updateData.startPoint;
+        } else // Wesley: We know it's in JSON format
+            {
+            const sp = updateData.startPoint as any;
+            startPoint = new Vector3(
+                sp._x !== undefined ? sp._x : (sp.x !== undefined ? sp.x : 0),
+                sp._y !== undefined ? sp._y : (sp.y !== undefined ? sp.y : 0),
+                sp._z !== undefined ? sp._z : (sp.z !== undefined ? sp.z : 0)
+            );
+        }
+        
+        if (updateData.endPoint instanceof Vector3) {
+            endPoint = updateData.endPoint;
+        } else {
+            const ep = updateData.endPoint as any;
+            endPoint = new Vector3(
+                ep._x !== undefined ? ep._x : (ep.x !== undefined ? ep.x : 0),
+                ep._y !== undefined ? ep._y : (ep.y !== undefined ? ep.y : 0),
+                ep._z !== undefined ? ep._z : (ep.z !== undefined ? ep.z : 0)
+            );
+        }
+
+        // Update the measurement data
+        measurementData.startPoint = startPoint;
+        measurementData.endPoint = endPoint;
+        measurementData.distanceMeasured = updateData.distanceMeasured;
+
+        // Update the plate object with new data
+        plateObject.UpdateMeasurement(startPoint, endPoint);
+
+        if (plateObject.startPointCollider) {
+            plateObject.startPointCollider.metadata.measurementId = updateData.measurement_instance_id;
+        }
+        if (plateObject.endPointCollider) {
+            plateObject.endPointCollider.metadata.measurementId = updateData.measurement_instance_id;
+        }
+
+        console.log(`Updated measurement ${updateData.measurement_instance_id} from server`);
+    }
+
 }

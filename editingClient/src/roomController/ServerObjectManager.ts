@@ -218,7 +218,7 @@ export class ServerObjectManager {
     AnnotationPlatesManager.instance.clearGUIObjects();
     AnnotationMenuController.instance.clearGUIObjects();
     VRAnnotationViewerMenuController.instance.clearGUIObjects();
-    MeasureMenuController.instance.clearGUIObjects();
+    MeasureMenuController.instance.ClearGUIObjects();
     MarkerMenuController.instance?.ClearGUIMarkers()
     
     this.objectHierarchy.ClearData();
@@ -249,7 +249,7 @@ export class ServerObjectManager {
     this.modifiedMarkers = [];
     this.modifiedLights.clear();
     AnnotationDataManager.instance.ClearAnnotationEntries();
-    MeasureMenuController.instance.clearMeasurementData();
+    MeasureMenuController.instance.ClearMeasurementData();
     
   }
   

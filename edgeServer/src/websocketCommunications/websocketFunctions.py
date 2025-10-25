@@ -130,6 +130,22 @@ class WebsocketFunctionPrep:
         self.reply["_code"] = CodeToClient.Reply
         return self.reply
 
+    def edit_server_update_measurement_object(self):
+        result = EditingServer.instance.update_measurement_object(
+            self.websocket, self.jsonData
+        )
+        self.reply = self.reply | result
+        self.reply["_code"] = CodeToClient.Reply
+        return self.reply
+
+    def edit_server_delete_measurement_object(self):
+        result = EditingServer.instance.delete_measurement_object(
+            self.websocket, self.jsonData
+        )
+        self.reply = self.reply | result
+        self.reply["_code"] = CodeToClient.Reply
+        return self.reply
+
     def edit_server_batch_update(self):
         result = EditingServer.instance.process_batch_update_from_client(
             self.websocket, self.jsonData

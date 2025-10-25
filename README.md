@@ -1,20 +1,20 @@
 ### Real-time 3D Reconstruction and Collaborative Authoring Platform
 
-`r3cap` aims to democratize the construction of digital twin environments by providing an accessible platform that allows different users to populate, edit and interact with shared 3D digital replicas, all at the same time.
+`R3CAP` aims to democratize the construction of digital twin environments by providing an accessible platform that allows different users to populate, edit and interact with shared 3D digital replicas, all at the same time.
 
 <p align="center">
   <img src="/images/overview.png" width="90%">
 </p>
 
-Existing digital twinning tools often suffer from complexities that render them inaccessible to non-technical users. These tools typically require specialized expertise and hardware sensors to synchronize real-world environments with their digital counterparts, limiting their usability and scalability across diverse settings. To address these issues, we developed the r3cap open-source library, designed to empower non-technical users to easily create and maintain high-fidelity, interactive 3D models in real-time. By simplifying the process and reducing the dependency on extensive hardware, r3cap aims to democratize digital twinning technology, making it accessible and practical for a broader range of applications, including healthcare, education, etc.
+Existing digital twinning tools often suffer from complexities that render them inaccessible to non-technical users. These tools typically require specialized expertise and hardware sensors to synchronize real-world environments with their digital counterparts, limiting their usability and scalability across diverse settings. To address these issues, we developed the R3CAP open-source library, designed to empower non-technical users to easily create and maintain high-fidelity, interactive 3D models in real-time. By simplifying the process and reducing the dependency on extensive hardware, R3CAP aims to democratize digital twinning technology, making it accessible and practical for a broader range of applications, including healthcare, education, etc.
 
-A simplified architecture of r3cap is as shown below.
+A simplified architecture of R3CAP is as shown below.
 
 <img src="/images/architecture.jpg" width="50%">
 
-Here's a video demonstrating r3cap's key interactions.
+Here's a video demonstrating R3CAP's key interactions.
 
-[<img src="/images/r3cap-youtube-thumbnail.png" alt="Video demonstrating r3cap" width="50%">](https://www.youtube.com/watch?v=8J5kFBGt28Q)
+[<img src="/images/r3cap-youtube-thumbnail.png" alt="Video demonstrating R3CAP" width="50%">](https://www.youtube.com/watch?v=8J5kFBGt28Q)
 
 # Project Contributors
 
@@ -66,7 +66,7 @@ The architecture was been presented at the 2023 AAAI Summer Symposium. The paper
 
 Note: The 3D models and other large files in this repository are stored using Git Large File Storage. Thus, you need to have `git-lfs` installed to clone this repository successfully.
 
-The `r3cap` repository has 3 main folders
+The `R3CAP` repository has 3 main folders
 
 ```
 ├── edgeServer
@@ -78,7 +78,7 @@ The `r3cap` repository has 3 main folders
 This contains the files and python code used to initialize the server, connect to mongoDB, and provide server-side services such as storing of capture and model data, 3D reconstruction, and post-processing with blender.
 
 ## captureClient (Mobile)
-This contains the files and code for building the iOS app version of the capture client for iPhone or iPad. The code in this folder was derived from the Xcode project in the [RTAB-Map repository](https://github.com/introlab/rtabmap) and modified for the purpose of the r3cap project.
+This contains the files and code for building the iOS app version of the capture client for iPhone or iPad. The code in this folder was derived from the Xcode project in the [RTAB-Map repository](https://github.com/introlab/rtabmap) and modified for the purpose of the R3CAP project.
 
 ## editingClient (WebXR)
 This contains the files needed to host the editing client web app for PC and VR.
@@ -93,7 +93,7 @@ For the server and clients to work and communicate, currently the devices need t
 
 ## Prerequisites
 
-Below are the OS-specific pre-requisites needed to run the various components of r3cap. For each component, you may also need to install additional dependencies (e.g. node modules), the installation instructions for which will be listed under the respective sections of those components.
+Below are the OS-specific pre-requisites needed to run the various components of R3CAP. For each component, you may also need to install additional dependencies (e.g. node modules), the installation instructions for which will be listed under the respective sections of those components.
 
 ### macOS
 

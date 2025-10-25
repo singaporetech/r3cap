@@ -91,5 +91,26 @@ const AssetConfig = {
     debug: 5,
   }
 
+  const MeasurementConfig = 
+  {
+    colors_default: "#FFFFFF",
+    colors_point_default: "#FFFFFF",
+    colors_hover: "#00FF00",
+    colors_delete: "#FF0000",
+
+    sphere_diameter: 0.05,
+
+    text_offset_y: 0.1,
+    text_offset_z: -0.1,
+    text_shadow_offset: 4,
+    text_font_size: 200,
+    text_fill_color: "#000000",
+    text_background_color: "#FFFFFF",
+
+    line_dash_size: 0.1,
+    line_gap_size: 0.1,
+    line_dash_multiplier: 20,
+  } as const;
+
   // export default AssetConfig, ColorsConfig;
-  export { AssetConfig, ColorsConfig, PresetConfig, RenderOrderConfig as RenderConfig};
+  export { AssetConfig, ColorsConfig, PresetConfig, RenderOrderConfig as RenderConfig, MeasurementConfig };

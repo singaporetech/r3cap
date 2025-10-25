@@ -269,7 +269,7 @@ class RoomInstance:
         for measurement in self.measurement_instance_dict.values():
             if(measurement.is_dirty):
                 measurement.is_dirty = False
-                measurement_to_send.append(measurement.to_dict())
+                measurement_to_send.append(measurement.to_client_update_dict())
 
         return measurement_to_send
     

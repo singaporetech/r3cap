@@ -352,10 +352,26 @@ export class SessionManager {
     if (annotationArray.length > 0){
       this.serverObjectManager.UpdateAnnotationComponents(annotationArray);
     }
-    // Processes any `measurement_updates` array sent from the server to create new measurement UI and objects.
-    if (measurementArray.length > 0){
-      // Use the func we created in `MeasureMenuController` to process the array, and try and create UI objects if they dont exist.
-      MeasureMenuController.instance.ReceiveCreateNewMeasurementRequestFromServer(measurementArray);
+    if (measurementArray.length > 0)
+      {
+      measurementArray.forEach((measurementData: any) => {
+        const measurementId = Number(measurementData.measurement_instance_id);
+        
+        const existingMeasurement = MeasureMenuController.instance.measurementsList.get(measurementId);
+        
+        if (measurementData.mark_delete) 
+        {
+          MeasureMenuController.instance.ReceiveDeleteMeasurementRequestFromServer(measurementData);
+        }
+        else if (existingMeasurement !== undefined) 
+        {
+          MeasureMenuController.instance.ReceiveUpdateMeasurementRequestFromServer(measurementData);
+        }
+        else 
+        {
+          MeasureMenuController.instance.ReceiveCreateNewMeasurementRequestFromServer([measurementData]);
+        }
+      });
     }
     return;
   }
